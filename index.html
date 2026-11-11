@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="sw">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>APEXBUILD GROUP</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f172a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="APEXBUILD">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{background:#f1f5f9;color:#1e293b;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+.inp{width:100%;background:#f8fafc;border:1px solid #cbd5e1;border-radius:.75rem;padding:.65rem;font-size:.8rem;color:#1e293b}
+.lbl{display:block;font-size:.7rem;font-weight:700;margin-bottom:.25rem;color:#334155}
+.b{padding:.25rem .5rem;border-radius:.4rem;font-size:.65rem;font-weight:700;color:#fff;white-space:nowrap}
+</style>
+</head>
+<body class="min-h-screen">
+<header class="bg-slate-900 text-white shadow-lg">
+  <div class="max-w-5xl mx-auto px-4 py-3 flex justify-between items-center">
+    <div class="flex items-center gap-3">
+      <div class="bg-blue-600 font-black px-3 py-1.5 rounded-lg tracking-wider">APEX</div>
+      <div><h1 class="font-bold text-sm leading-tight">APEXBUILD GROUP</h1>
+      <p id="status" class="text-[11px] text-slate-400">Inaunganisha...</p></div>
+    </div>
+    <div id="who" class="hidden items-center gap-2">
+      <span id="badge" class="bg-blue-600 text-[10px] font-bold px-2.5 py-1 rounded-full uppercase"></span>
+      <button onclick="myPw()" class="bg-slate-700 px-2.5 py-1.5 rounded-lg text-xs">🔑</button>
+      <button onclick="logout()" class="bg-rose-600 px-3 py-1.5 rounded-lg text-xs font-bold">Ondoka</button>
+    </div>
+  </div>
+</header>
+<main id="app" class="max-w-5xl mx-auto p-4 space-y-4"></main>
+<div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-4 py-2.5 rounded-xl text-xs shadow-2xl opacity-0 transition pointer-events-none z-[60]"></div>
+<div id="modal" class="hidden fixed inset-0 bg-black/50 z-50 items-end sm:items-center justify-center p-3">
+  <form id="mf" onsubmit="mok(event)" class="bg-white rounded-2xl p-5 w-full max-w-md max-h-[90vh] overflow-y-auto space-y-3">
+    <h3 id="mt" class="font-bold text-sm"></h3><div id="mb" class="space-y-3"></div>
+    <div class="flex gap-2"><button type="button" onclick="closeM()" class="flex-1 bg-slate-200 font-bold py-2.5 rounded-xl text-xs">Ghairi</button><button class="flex-1 bg-blue-600 text-white font-bold py-2.5 rounded-xl text-xs">Hifadhi</button></div>
+  </form>
+</div>
+
+<script>
+const DEF={ceo:{role:'ceo',name:'CEO'},manager:{role:'manager',name:'Manager'},marketing:{role:'marketing',name:'Marketing'}};
+const RN={ceo:'CEO',manager:'Manager',marketing:'Marketing'};
+const $=id=>document.getElementById(id);
+const v=id=>$(id).value;
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const num=x=>(Number(x)||0).toLocaleString();
+const today=()=>new Date().toLocaleDateString('sw-TZ');
+const rid=p=>p+'_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
+let db=null,auth=null,me=null,P=[],logs={mgr:[],mkt:[]},unsubs=[],FB_OK=false;
+const CEO_EMAIL='ceo@apexbuild.app';
+function toast(m){const t=$('toast');t.textContent=m;t.style.opacity=1;setTimeout(()=>t.style.opacity=0,2600)}
+function setStatus(ok,m){$('status').innerHTML=ok?'<span class="text-emerald-400">● Live — data zinasawazishwa</span>':'<span class="text-amber-400">● '+(m||'Haijaunganishwa')+'</span>'}
+
+// >>> PASTE YOUR FIREBASE CONFIG HERE (Project settings > Your apps > Web app) <<<
+const FIREBASE_CONFIG={apiKey:"AIzaSyD49kfUwok0-L8lBLvgRqJ4gg5rG68DEyY",authDomain:"apexbuild-26eec.firebaseapp.com",projectId:"apexbuild-26eec",storageBucket:"apexbuild-26eec.firebasestorage.app",messagingSenderId:"560793203420",appId:"1:560793203420:web:d5087671a76d72dd213a19"};
+(function(){
+  if(!FIREBASE_CONFIG.projectId||FIREBASE_CONFIG.apiKey==='PASTE_HERE'){setStatus(false,'Weka Firebase config kwenye index.html');return}
+  try{firebase.initializeApp(FIREBASE_CONFIG);db=firebase.firestore();auth=firebase.auth();db.enablePersistence({synchronizeTabs:true}).catch(()=>{})}
+  catch(e){setStatus(false,'Firebase imeshindwa kuanza');return}
+  FB_OK=true;setStatus(true);auth.onAuthStateChanged(onAuth);
+})();
+
+// ---------- auth ----------
+function stop(){unsubs.forEach(f=>f());unsubs=[];logs={mgr:[],mkt:[]};P=[]}
+function kick(){if(auth)auth.signOut();toast('Akaunti imezimwa au huna ruhusa')}
+async function onAuth(user){
+  stop();
+  if(!user){me=null;render();return}
+  try{
+    if(user.email===CEO_EMAIL)me={username:'ceo',role:'ceo',uid:user.uid};
+    else{
+      const ref=db.collection('profiles').doc(user.uid),p=(await ref.get()).data();
+      if(!p||p.active===false){await auth.signOut();toast('Akaunti imezimwa au haipo. Wasiliana na CEO.');return}
+      me={username:p.username,role:p.role,uid:user.uid};
+      unsubs.push(ref.onSnapshot(d=>{const x=d.data();if(!x||x.active===false)kick()},e=>{if(e.code==='permission-denied')kick()}));
+    }
+  }catch(e){await auth.signOut();toast('Imeshindwa kuthibitisha akaunti');return}
+  listen();render();
+}
+function listen(){
+  const err=e=>{if(e.code==='permission-denied')kick()};
+  const L=(k,c)=>unsubs.push(db.collection(c).onSnapshot(s=>{logs[k]=s.docs.map(d=>d.data()).sort((a,b)=>(b.timestamp||0)-(a.timestamp||0));refresh()},err));
+  if(me.role==='ceo'||me.role==='manager')L('mgr','managerLogs');
+  if(me.role==='ceo'||me.role==='marketing')L('mkt','marketingLogs');
+  if(me.role==='ceo')unsubs.push(db.collection('profiles').onSnapshot(s=>{P=s.docs.map(d=>({uid:d.id,...d.data()}));refresh()},err));
+}
+async function login(e){
+  e.preventDefault();
+  if(!FB_OK){alert('Firebase haijawekwa kwenye index.html');return}
+  const u=v('lu').trim().toLowerCase();
+  try{
+    let email=CEO_EMAIL;
+    if(u!=='ceo'){const s=await db.collection('usernames').doc(u).get();if(!s.exists)throw 0;email=s.data().email}
+    await auth.signInWithEmailAndPassword(email,v('lp'));toast('Karibu '+u+'!');
+  }catch(x){alert('Jina au neno la siri sio sahihi!')}
+}
+function logout(){if(auth)auth.signOut()}
+function myPw(){
+  modal('Badilisha Password Yangu',fld('cp','Password ya sasa','','password')+fld('np2','Password mpya (angalau herufi 6)','','password'),async()=>{
+    const u=auth.currentUser;if(v('np2').length<6){toast('Password mpya iwe angalau herufi 6');return false}
+    try{await u.reauthenticateWithCredential(firebase.auth.EmailAuthProvider.credential(u.email,v('cp')));await u.updatePassword(v('np2'));toast('Password imebadilishwa');return true}
+    catch(e){toast('Password ya sasa sio sahihi');return false}
+  });
+}
+
+// ---------- data ----------
+async function put(coll,obj){
+  if(!db){toast('Hakuna muunganisho wa cloud');return false}
+  try{await db.collection(coll).doc(obj.id).set(obj);return true}
+  catch(e){toast(e.code==='permission-denied'?'Huna ruhusa ya kitendo hiki':'Imeshindwa, jaribu tena');return false}
+}
+async function del(coll,id){
+  try{await db.collection(coll).doc(id).delete();toast('Imefutwa');return true}catch(e){toast('Imeshindwa kufuta');return false}
+}
+
+// ---------- modal ----------
+let mcb=null;
+function modal(t,body,cb){$('mt').textContent=t;$('mb').innerHTML=body;mcb=cb;$('modal').classList.remove('hidden');$('modal').classList.add('flex')}
+function closeM(){$('modal').classList.add('hidden');$('modal').classList.remove('flex')}
+async function mok(e){e.preventDefault();if(await mcb()!==false)closeM()}
+const fld=(id,l,val,t='text')=>`<div><label class="lbl">${l}</label><input id="${id}" type="${t}" value="${esc(val)}" class="inp"></div>`;
+
+// ---------- helpers ----------
+const pays=l=>l.payments||(l.paid?[{amount:l.paid,method:l.payMethod||'',date:l.date,ts:l.timestamp}]:[]);
+const paidOf=l=>pays(l).reduce((s,p)=>s+(+p.amount||0),0);
+const balOf=l=>Math.max(0,(+l.total||0)-paidOf(l));
+const stat=l=>paidOf(l)>=(+l.total||0)?'Full':'Partial';
+const bt=(fn,id,t,c)=>`<button onclick="${fn}('${esc(id)}')" class="b ${c}">${t}</button>`;
+const card="bg-white p-4 rounded-2xl shadow border border-slate-200";
+const table=(heads,rows,empty)=>`<div class="overflow-x-auto"><table class="w-full text-left text-xs"><thead class="bg-slate-100 text-slate-600 font-bold uppercase"><tr>${heads.map(h=>`<th class="p-2 whitespace-nowrap">${h}</th>`).join('')}</tr></thead><tbody class="divide-y divide-slate-100">${rows.length?rows.join(''):`<tr><td colspan="${heads.length}" class="p-4 text-center text-slate-400">${empty}</td></tr>`}</tbody></table></div>`;
+const banner=(c,tag,t,s)=>`<div class="bg-gradient-to-r ${c} text-white rounded-2xl p-5 shadow-xl"><span class="text-[10px] bg-white/20 font-bold px-3 py-1 rounded-full uppercase">${tag}</span><h2 class="text-lg font-bold mt-1">${t}</h2><p class="text-xs opacity-80">${s}</p></div>`;
+
+function mgrTable(){const c=me&&me.role==='ceo';return table(['Tarehe','Malighafi','Fyatuwa','Sokoni','Haribika','Matumizi'].concat(c?['']:[]),logs.mgr.map(l=>`<tr><td class="p-2">${esc(l.date)}</td><td class="p-2 font-bold">${esc(l.rawMaterial)}</td><td class="p-2 font-bold text-emerald-600">+${num(l.produced)}</td><td class="p-2 text-blue-600">${num(l.market)}</td><td class="p-2 text-rose-600">${num(l.damaged)}</td><td class="p-2">${num(l.expense)}</td>${c?`<td class="p-2 flex gap-1">${bt('editMgr',l.id,'Hariri','bg-blue-600')}${bt('askDel',"managerLogs|"+l.id,'Futa','bg-rose-600')}</td>`:''}</tr>`),'Bado hakuna rekodi')}
+function mktTable(){const r=me&&me.role,c=r==='ceo';return table(['Tarehe','Mteja','Simu / Eneo','Jumla','Kulipwa','Deni','Hali',''],logs.mkt.map(l=>{const b=balOf(l);return `<tr><td class="p-2">${esc(l.date)}</td><td class="p-2 font-bold">${esc(l.customer)}</td><td class="p-2">${esc(l.phone)} ${esc(l.location)}</td><td class="p-2 font-bold">${num(l.total)}</td><td class="p-2 font-bold text-emerald-600">${num(paidOf(l))}</td><td class="p-2 font-bold text-rose-600">${num(b)}</td><td class="p-2"><span class="b ${stat(l)==='Full'?'bg-emerald-600':'bg-rose-600'}">${stat(l)}</span></td><td class="p-2 flex gap-1">${b>0?bt('payM',l.id,'+ Lipa','bg-emerald-600'):''}${c?bt('editMkt',l.id,'Hariri','bg-blue-600')+bt('askDel',"marketingLogs|"+l.id,'Futa','bg-rose-600'):''}</td></tr>`}),'Bado hakuna oda')}
+function usersTable(){const rows=[`<tr><td class="p-2 font-bold">ceo</td><td class="p-2">CEO</td><td class="p-2"><span class="b bg-emerald-600">Hai</span></td><td class="p-2 text-slate-400">tumia 🔑 juu</td></tr>`].concat(P.map(a=>`<tr><td class="p-2 font-bold">${esc(a.username)}</td><td class="p-2">${RN[a.role]||esc(a.role)}</td><td class="p-2"><span class="b ${a.active===false?'bg-rose-600':'bg-emerald-600'}">${a.active===false?'Amezimwa':'Hai'}</span></td><td class="p-2 flex gap-1 flex-wrap">${bt('setPass',a.uid,'Password','bg-blue-600')}${bt('toggleU',a.uid,a.active===false?'Washa':'Zima','bg-amber-600')}${bt('askDel','users|'+a.uid,'Futa','bg-rose-600')}</td></tr>`));return table(['Jina','Nafasi','Hali',''],rows,'')}
+
+// ---------- render ----------
+function render(){
+  const app=$('app'),r=me&&me.role;
+  $('who').classList.toggle('hidden',!me);$('who').classList.toggle('flex',!!me);
+  if(!me){
+    app.innerHTML=`<form onsubmit="login(event)" class="max-w-md mx-auto my-10 bg-white rounded-2xl shadow-xl p-6 border border-slate-200 space-y-4">
+      <h2 class="text-xl font-bold text-center">Ingia Kwenye Mfumo</h2>
+      <div><label class="lbl">JINA LA AKAUNTI</label><input id="lu" required autocapitalize="none" class="inp" placeholder="mfano: ceo, manager, marketing"></div>
+      <div><label class="lbl">NENO LA SIRI</label><input id="lp" type="password" required class="inp"></div>
+      <button class="w-full bg-blue-600 text-white font-bold py-3 rounded-xl text-sm">Ingia</button></form>`;return;
+  }
+  $('badge').textContent=me.username+' · '+(RN[r]||r);
+  if(r==='ceo')app.innerHTML=banner('from-slate-900 to-blue-900','CEO Panel','Muhtasari wa Shughuli za Biashara','Data zote moja kwa moja. Unaweza kuhariri, kufuta na kusimamia akaunti.')+
+    `<div id="metrics" class="grid grid-cols-2 md:grid-cols-3 gap-3"></div>
+     <div class="${card}"><h3 class="font-bold text-sm mb-3">👥 Akaunti za Wafanyakazi</h3>
+       <form onsubmit="addU(event)" class="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3">
+         <input id="nu" required autocapitalize="none" placeholder="jina jipya" class="inp"><select id="nr" class="inp"><option value="manager">Manager</option><option value="marketing">Marketing</option></select>
+         <input id="np" required placeholder="password (6+)" class="inp"><button class="bg-blue-600 text-white font-bold rounded-xl text-xs py-2">+ Ongeza</button></form>
+       <div id="t3"></div></div>
+     <div class="${card}"><h3 class="font-bold text-sm mb-3">🏭 Rekodi za Uzalishaji</h3><div id="t1"></div></div>
+     <div class="${card}"><h3 class="font-bold text-sm mb-3">🛒 Rekodi za Mauzo</h3><div id="t2"></div></div>`;
+  else if(r==='manager')app.innerHTML=banner('from-blue-900 to-indigo-900','Manager Panel','Karibu Meneja Uzalishaji','Ingiza taarifa za stoo, uzalishaji, sokoni na matumizi.')+
+    `<form onsubmit="subMgr(event)" class="${card} space-y-3">
+      <div><label class="lbl">Malighafi / Bidhaa Iliyoingia Stoo</label><input id="m_raw" required class="inp" placeholder="Mfano: Unga - Mifuko 50"></div>
+      <div class="grid grid-cols-3 gap-2"><div><label class="lbl">Iliofyatulikwa</label><input id="m_prod" type="number" min="0" value="0" class="inp"></div>
+        <div><label class="lbl">Sokoni</label><input id="m_mkt" type="number" min="0" value="0" class="inp"></div>
+        <div><label class="lbl text-rose-600">Iliyoharibika</label><input id="m_dmg" type="number" min="0" value="0" class="inp"></div></div>
+      <div><label class="lbl">Matumizi ya Siku (Tsh)</label><input id="m_exp" type="number" min="0" value="0" class="inp"></div>
+      <button class="w-full bg-blue-600 text-white font-bold py-3 rounded-xl text-xs">☁️ Rekodi & Tuma Taarifa</button></form>
+     <div class="${card}"><h3 class="font-bold text-sm mb-3">Rekodi Zako</h3><div id="t1"></div></div>`;
+  else app.innerHTML=banner('from-emerald-900 to-teal-900','Marketing Panel','Karibu Afisa Masoko','Sajili oda na malipo (kamili au kidogo kidogo).')+
+    `<form onsubmit="subMkt(event)" class="${card} space-y-3">
+      <div><label class="lbl">Jina la Mteja</label><input id="k_cust" required class="inp"></div>
+      <div class="grid grid-cols-2 gap-2"><div><label class="lbl">Simu</label><input id="k_phone" class="inp"></div><div><label class="lbl">Eneo</label><input id="k_loc" class="inp"></div>
+        <div><label class="lbl">Idadi</label><input id="k_qty" type="number" min="1" value="1" oninput="calc()" class="inp"></div><div><label class="lbl">Bei kwa Moja (Tsh)</label><input id="k_price" type="number" min="0" value="0" oninput="calc()" class="inp"></div></div>
+      <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3 flex justify-between text-xs font-bold text-emerald-800"><span>Jumla:</span><span id="k_total">Tsh 0</span></div>
+      <div class="grid grid-cols-2 gap-2"><div><label class="lbl">Malipo ya Kwanza (Tsh)</label><input id="k_paid" type="number" min="0" value="0" class="inp"></div>
+        <div><label class="lbl">Njia ya Malipo</label><select id="k_method" class="inp"><option>Cash</option><option>Bank</option><option>Mobile</option></select></div></div>
+      <button class="w-full bg-emerald-600 text-white font-bold py-3 rounded-xl text-xs">☁️ Hifadhi Oda & Tuma</button></form>
+     <div class="${card}"><h3 class="font-bold text-sm mb-3">Rekodi za Oda (bonyeza "+ Lipa" kuongeza malipo ya deni)</h3><div id="t2"></div></div>`;
+  refresh();
+}
+function refresh(){
+  if(!me)return;
+  ['t1','t2','t3'].forEach(i=>{if($(i))$(i).innerHTML=i==='t1'?mgrTable():i==='t2'?mktTable():usersTable()});
+  if($('metrics')){
+    const s=(a,k)=>a.reduce((x,l)=>x+(Number(l[k])||0),0),sales=s(logs.mkt,'total'),paid=logs.mkt.reduce((x,l)=>x+paidOf(l),0);
+    const m=[['Zilizofyatuliwa',num(s(logs.mgr,'produced')),'text-blue-600'],['Zilizoharibika',num(s(logs.mgr,'damaged')),'text-rose-600'],['Matumizi (Tsh)',num(s(logs.mgr,'expense')),'text-slate-700'],['Jumla ya Mauzo (Tsh)',num(sales),'text-emerald-600'],['Zilizokusanywa (Tsh)',num(paid),'text-emerald-700'],['Madeni (Tsh)',num(sales-paid),'text-rose-600']];
+    $('metrics').innerHTML=m.map(([a,b,c])=>`<div class="bg-white p-4 rounded-xl shadow border border-slate-200"><p class="text-[10px] font-bold text-slate-500 uppercase">${a}</p><h3 class="text-lg font-black mt-1 ${c}">${b}</h3></div>`).join('');
+  }
+}
+
+// ---------- staff submissions ----------
+async function subMgr(e){
+  e.preventDefault();
+  const l={id:rid('mgr'),timestamp:Date.now(),date:today(),rawMaterial:v('m_raw'),produced:+v('m_prod')||0,market:+v('m_mkt')||0,damaged:+v('m_dmg')||0,expense:+v('m_exp')||0,by:me.username};
+  if(await put('managerLogs',l)){e.target.reset();toast('Imetumwa kikamilifu!')}
+}
+function calc(){$('k_total').textContent='Tsh '+num((+v('k_qty')||0)*(+v('k_price')||0))}
+async function subMkt(e){
+  e.preventDefault();
+  const qty=+v('k_qty')||0,price=+v('k_price')||0,paid=+v('k_paid')||0,ts=Date.now();
+  const payments=paid>0?[{amount:paid,method:v('k_method'),date:today(),ts}]:[];
+  const l={id:rid('mkt'),timestamp:ts,date:today(),customer:v('k_cust'),phone:v('k_phone'),location:v('k_loc'),qty,price,total:qty*price,payments,paid,status:paid>=qty*price?'Full':'Partial',by:me.username};
+  if(await put('marketingLogs',l)){e.target.reset();calc();toast('Oda imetumwa!')}
+}
+const fin=l=>{l.paid=paidOf(l);l.status=stat(l);return l};
+
+// ---------- partial payment ----------
+function payM(id){
+  const l=logs.mkt.find(x=>x.id===id);if(!l)return;
+  const hist=pays(l).map(p=>`<li>${esc(p.date)} — Tsh ${num(p.amount)} (${esc(p.method)})</li>`).join('')||'<li>Hakuna malipo bado</li>';
+  modal('Ongeza Malipo — '+l.customer,`<div class="text-xs bg-slate-50 rounded-xl p-3 space-y-1"><p>Jumla: <b>Tsh ${num(l.total)}</b></p><p>Deni lililobaki: <b class="text-rose-600">Tsh ${num(balOf(l))}</b></p><ul class="list-disc ml-4 text-slate-500">${hist}</ul></div>`+fld('pa','Kiasi anacholipa sasa (Tsh)',balOf(l),'number')+`<div><label class="lbl">Njia ya Malipo</label><select id="pm" class="inp"><option>Cash</option><option>Bank</option><option>Mobile</option></select></div>`,async()=>{
+    const a=+v('pa')||0;if(a<=0){toast('Weka kiasi sahihi');return false}
+    const n={...l,payments:[...pays(l),{amount:a,method:v('pm'),date:today(),ts:Date.now()}]};
+    return (await put('marketingLogs',fin(n)))&&(toast('Malipo yamehifadhiwa'),true)
+  });
+}
+
+// ---------- CEO edit / delete ----------
+function editMgr(id){
+  const l=logs.mgr.find(x=>x.id===id);if(!l)return;
+  modal('Hariri Rekodi ya Uzalishaji',fld('e_r','Malighafi',l.rawMaterial)+fld('e_p','Iliofyatulikwa',l.produced,'number')+fld('e_m','Sokoni',l.market,'number')+fld('e_d','Iliyoharibika',l.damaged,'number')+fld('e_x','Matumizi (Tsh)',l.expense,'number'),
+  async()=>(await put('managerLogs',{...l,rawMaterial:v('e_r'),produced:+v('e_p')||0,market:+v('e_m')||0,damaged:+v('e_d')||0,expense:+v('e_x')||0}))&&(toast('Imehaririwa'),true));
+}
+function editMkt(id){
+  const l=logs.mkt.find(x=>x.id===id);if(!l)return;const ps=pays(l);
+  modal('Hariri Oda — '+l.customer,fld('e_c','Mteja',l.customer)+fld('e_ph','Simu',l.phone)+fld('e_l','Eneo',l.location)+fld('e_q','Idadi',l.qty,'number')+fld('e_pr','Bei kwa Moja (Tsh)',l.price,'number')+
+    ps.map((p,i)=>fld('ep'+i,'Malipo #'+(i+1)+' ('+esc(p.date||'')+') — weka 0 kuondoa',p.amount,'number')).join('')+fld('e_np','Ongeza malipo mapya (Tsh)',0,'number'),
+  async()=>{
+    const qty=+v('e_q')||0,price=+v('e_pr')||0;
+    const np=ps.map((p,i)=>({...p,amount:+v('ep'+i)||0})).filter(p=>p.amount>0),add=+v('e_np')||0;
+    if(add>0)np.push({amount:add,method:'Cash',date:today(),ts:Date.now()});
+    return (await put('marketingLogs',fin({...l,customer:v('e_c'),phone:v('e_ph'),location:v('e_l'),qty,price,total:qty*price,payments:np})))&&(toast('Imehaririwa'),true);
+  });
+}
+function askDel(k){
+  const [c,id]=k.split('|');
+  modal('Una uhakika unataka kufuta?','<p class="text-xs text-slate-600">Kitendo hiki hakiwezi kurudishwa.</p>',()=>c==='users'?delU(id):del(c,id));
+}
+
+// ---------- CEO: accounts ----------
+const mail=u=>u+'.'+Date.now().toString(36)+'@apexbuild.app';
+async function mkAuth(email,pass){
+  const sec=firebase.apps.find(a=>a.name==='sec')||firebase.initializeApp(FIREBASE_CONFIG,'sec');
+  const a=sec.auth(),c=await a.createUserWithEmailAndPassword(email,pass);await a.signOut();return c.user.uid;
+}
+async function addU(e){
+  e.preventDefault();
+  const u=v('nu').trim().toLowerCase();
+  if(!/^[a-z0-9_]{2,20}$/.test(u)||u==='ceo'){toast('Jina: herufi ndogo/namba, 2-20 (sio ceo)');return}
+  if(v('np').length<6){toast('Password iwe angalau herufi 6');return}
+  try{
+    if((await db.collection('usernames').doc(u).get()).exists){toast('Jina hili lipo tayari');return}
+    const email=mail(u),uid=await mkAuth(email,v('np')),b=db.batch();
+    b.set(db.collection('profiles').doc(uid),{username:u,role:v('nr'),active:true});
+    b.set(db.collection('usernames').doc(u),{email,uid});
+    await b.commit();e.target.reset();toast('Akaunti imeongezwa');
+  }catch(x){toast('Imeshindwa kuongeza akaunti')}
+}
+function setPass(uid){
+  const p=P.find(x=>x.uid===uid);if(!p)return;
+  modal('Password Mpya — '+p.username,fld('npw','Password mpya (angalau herufi 6)','','text'),async()=>{
+    const pw=v('npw');if(pw.length<6){toast('Password iwe angalau herufi 6');return false}
+    try{
+      const email=mail(p.username),nu=await mkAuth(email,pw),b=db.batch();
+      b.delete(db.collection('profiles').doc(uid));
+      b.set(db.collection('profiles').doc(nu),{username:p.username,role:p.role,active:p.active!==false});
+      b.set(db.collection('usernames').doc(p.username),{email,uid:nu});
+      await b.commit();toast('Password imebadilishwa; aliyekuwa ameingia atatolewa');return true;
+    }catch(x){toast('Imeshindwa kubadilisha password');return false}
+  });
+}
+async function toggleU(uid){
+  const p=P.find(x=>x.uid===uid);if(!p)return;
+  try{await db.collection('profiles').doc(uid).update({active:p.active===false});toast(p.active===false?'Akaunti imewashwa':'Akaunti imezimwa — ametolewa na hawezi kuingia')}catch(e){toast('Imeshindwa')}
+}
+async function delU(uid){
+  const p=P.find(x=>x.uid===uid);if(!p)return false;
+  try{const b=db.batch();b.delete(db.collection('profiles').doc(uid));b.delete(db.collection('usernames').doc(p.username));await b.commit();toast('Imefutwa');return true}catch(e){toast('Imeshindwa');return false}
+}
+render();
+if("serviceWorker" in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("sw.js").catch(()=>{}));
+</script>
+</body>
+</html>
